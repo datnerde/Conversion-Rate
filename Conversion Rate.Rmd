@@ -1,0 +1,147 @@
+---
+output:
+  html_document: default
+  pdf_document: default
+---
+#Conversion Rate
+```{r}
+#read library
+library(dplyr)
+library(randomForest)
+library(ggplot2)
+library(rpart)
+library(rpart.plot)
+library(rattle)
+library(RColorBrewer)
+setwd("/Users/zhongming/Desktop/DS\ Project/Conversion\ Rate/")
+data=read.csv('conversion_data.csv')
+head(data)
+```
+```{r}
+#see structure of data
+summary(data)
+str(data)
+```
+##data seems to be clean. However, the 123 age dosen't make sense.
+```{r}
+sort(unique(data$age),decreasing=T)
+```
+##Why not take a look at it?
+```{r}
+table(data$age)
+```
+We can see that only two users have really unreasonable age. We can simly remove this 2 users.
+```{r}
+data=subset(data,age<80)
+```
+Let's do some EDA first! Now, remeber we care about the conversion rate. So, we need to see whether country/new_user/sources/pages have impact on convversion rate.
+```{r}
+#see country
+data_country=data%>%group_by(country)%>%summarise(conversion_rate=mean(converted))
+
+ggplot(data=data_country,aes(x=country,y=conversion_rate))+geom_bar(stat="identity",aes(fill=country))
+plot(table(data$country))
+```
+So, it is clear that China has small conversion rate.
+```{r}
+#Take a look at page
+data_pages=data%>%group_by(total_pages_visited)%>%summarise(conversion_rate=mean(converted))
+qplot(total_pages_visited,conversion_rate,data=data_pages,geom="line")
+```
+Very interesting.Total pages and conversion rate seems to have a logistic relationship. Because people spend more time on websites, they tend to convvert more easily.�􏰒􏱘􏰅􏱑􏱫􏱪􏱡􏰒􏱘􏲈
+
+```{r}
+data_users=data%>%group_by(new_user)%>%summarise(conversion_rate=mean(converted))
+
+ggplot(data=data_users,aes(x=new_user,y=conversion_rate))+geom_bar(stat="identity")
+```
+Old uses are more easily to converte. THis is very reasonable.
+```{r}
+#Take a look at  age
+data_age=data%>%group_by(age)%>%summarise(conversion_rate=mean(converted))
+qplot(age,conversion_rate,data=data_age,geom="line")
+```
+Well, I guess we can say that old people are stubborn.Or old people are not easy to change.HAHA!
+```{r}
+#take a look at souces
+data_source=data%>%group_by(source)%>%summarise(conversion_rate=mean(converted))
+
+ggplot(data=data_source,aes(x=source,y=conversion_rate))+geom_bar(stat="identity",aes(fill=source))
+
+plot(table(data$source))
+```
+Well, most of the users click through SEO. Other use Ads. Not much people visit the site through direct URL.Ads has the highest conversion rate.
+
+#Machine Learning!!
+Here is the fun but the hardest part of this project!\newline
+It is clear that it is a binary classificaiton problem. \newline
+1.Logistic\newline
+2.Decision Tree\newline
+3.RuleFit\newline
+4.Random Forest in combination with partial dependence plots\newline
+5.KNN\newline
+6.SVM\newline
+7.MLP\newline
+8.lightGBM\newline
+9.xgboost\newline
+10.NN\newline
+11.Naive Bayes Classifer\newline
+12.RVM or Relevance Vector Machine\newline
+13.Perceptron\newline
+But we may just try only several of them because some methods are better to be perfromed in pyton rather than R.\newline
+
+```{r}
+#convert bnary variable into factor
+data$new_user=as.factor(data$new_user)
+data$converted=as.factor(data$converted)
+```
+```{r}
+#Alright! Split data into train and test set
+train_sample=sample(nrow(data),size=nrow(data)*0.66)
+train_data=data[train_sample,]
+test_data=data[-train_sample,]
+#Random Forest.Wow
+rf=randomForest(y=train_data$converted,x=train_data[,-ncol(train_data)],ytest=test_data$converted,xtest=test_data[,-ncol(test_data)],ntree=100,mtry=3,keep.forest=T)
+rf
+```
+Well. We can see that the error rate from train set and test set is similart.So we are not overfitting. And the error is really small.However, when we see the class error, this algorithm clssify 32% of conversion as not converted. This algorithm should be further modified using ROCR and find the best cut-off point.
+```{r}
+varImpPlot(rf,type=2)
+```
+The total pages visited is the most important factor. But we cannot do much about that. SAD!
+```{r}
+rf=randomForest(y=train_data$converted,x=train_data[,-c(5,ncol(train_data))],ytest=test_data$converted,xtest=test_data[,-c(5,ncol(test_data))],ntree=100,mtry=3,keep.forest=T,classwt=c(0.7,0.3))
+rf
+```
+```{r}
+varImpPlot(rf,type=2)
+```
+Wow. After ditching the page visited, we can see that new_user is actually the most important factor. And source seems to be not important.
+```{r}
+op<-par(mfrow=c(2,2))
+partialPlot(rf,train_data,country,1)
+partialPlot(rf,train_data,age,1)
+partialPlot(rf,train_data,new_user,1)
+partialPlot(rf,train_data,source,1)
+```
+Here are the insight we can tell:\newline
+Users from China are tough to convert.\newlne
+The site works well for young people but less attractive for old people(>30 years old). For the sudden bouce near 60, I think we can not draw any conclusion because data point near 60 is small. \newline
+source is not important. \newline
+```{r}
+#build a simple decision tree to confirm our conclusion
+tree=rpart(data$converted~.,data[,-c(5,ncol(data))],control=rpart.control(maxdepth = 3),parms=list(prior=c(0.7,0.3)))
+tree
+rpart.plot(tree)
+```
+
+I have to say: this is way more fun than I imagine. To convert a user, we need it to be an old user, and we don't want it from China(HAHAHA!). Finally, we want to be younger(<30years)\newline
+Then we can make good suggestion to PM!\newline
+1. Marketing should focus on yong people.\newline
+2. The site is working well for Gemnay. But we don't have many Germany users. We can explor the market more.\newline
+3. Use emails targeting on old users. \newline
+4. It might be something wrong with the Chinese verison of this site that prevent people from converting.Try to figure out. \nweline
+5. Old people may not be familiar with the sites. Try to find out why. UI design ? Many those control buttons is hard to locate for old poeple. \newline
+6. For those who have already looked through many webpages in the site, we can send email to lure them into conversion.\newline
+
+
